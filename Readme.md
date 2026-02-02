@@ -1,52 +1,49 @@
 # Inventory Platform (Multi-tenant) — .NET 9 + EF Core + SQLite
 
-A production-style **multi-tenant inventory system** demonstrating:
+Production-style **multi-tenant inventory system** showcasing:
 
-- **Strict tenant isolation** (tenant-owned entities contain `TenantId`)
-- **Tenant resolution** via HTTP header: `X-Tenant-Id`
-- **JWT authentication** + **role-based authorization**
-- **Catalog → inventory workflow** with a **stock movement ledger**
-- **Audit logging** with **Before/After JSON snapshots**
-- **Background job** generating **low-stock reports**
-- **xUnit** unit + integration tests
+- Multi-tenancy with **strict tenant isolation** (tenant-owned entities have `TenantId`)
+- Tenant resolved from HTTP header: `X-Tenant-Id`
+- JWT authentication + role-based authorization
+- Catalog → inventory workflow with stock movement ledger
+- Audit logging with Before/After JSON snapshots
+- Background job generating low-stock reports
+- xUnit unit + integration tests
 
 ---
 
 ## Table of Contents
 
+- [Quickstart](#quickstart)
 - [Solution Structure](#solution-structure)
 - [Prerequisites](#prerequisites)
 - [Setup & Run (Local)](#setup--run-local)
   - [Restore](#restore)
-  - [Apply DB Migrations](#apply-db-migrations)
+  - [Apply DB migrations](#apply-db-migrations)
   - [Run the API](#run-the-api)
-  - [Swagger UI](#swagger-ui)
+  - [Open Swagger](#open-swagger)
 - [Database (SQLite)](#database-sqlite)
-  - [Reset DB (Dev)](#reset-db-dev)
-- [Seeding (Demo Tenants + Users + Products + Warehouses)](#seeding-demo-tenants--users--products--warehouses)
-  - [Demo Tenants](#demo-tenants)
-  - [Seeded Users](#seeded-users)
-  - [Seeded Warehouses](#seeded-warehouses)
-  - [Seeded Products](#seeded-products)
+  - [Reset DB (dev)](#reset-db-dev)
+- [Seeding (Demo Data)](#seeding-demo-data)
+  - [Tenants](#tenants)
+  - [Users](#users)
+  - [Warehouses](#warehouses)
+  - [Products](#products)
 - [Multi-tenancy](#multi-tenancy)
-  - [Tenant Header (Required)](#tenant-header-required)
-  - [Tenant Isolation Enforcement](#tenant-isolation-enforcement)
+  - [Tenant header (required)](#tenant-header-required)
+  - [Tenant isolation enforcement](#tenant-isolation-enforcement)
 - [Authentication & Authorization](#authentication--authorization)
   - [Roles](#roles)
   - [Login](#login)
-  - [Swagger Usage (Tenant Header + JWT)](#swagger-usage-tenant-header--jwt)
+  - [Swagger usage (Tenant header + JWT)](#swagger-usage-tenant-header--jwt)
 - [API Endpoints](#api-endpoints)
   - [Audit](#audit)
   - [Auth](#auth)
   - [Inventory](#inventory)
-  - [Products](#products)
   - [Reports (Low-stock)](#reports-low-stock)
-  - [Users](#users)
-  - [Warehouses](#warehouses)
+  - [Troubleshooting](#troubleshooting)
 - [Background Job — Low Stock Report](#background-job--low-stock-report)
 - [Testing](#testing)
-  - [Unit Tests](#unit-tests)
-  - [Integration Tests](#integration-tests)
 - [Troubleshooting](#troubleshooting)
   - [EF CLI asks for project](#ef-cli-asks-for-project)
   - [Pending model changes warning](#pending-model-changes-warning)
@@ -55,32 +52,53 @@ A production-style **multi-tenant inventory system** demonstrating:
 
 ---
 
-## Solution Structure
+## Quickstart
 
-- **Inventory.API** — Web API (controllers, middleware, seed, hosted services, Swagger)
-- **Inventory.Domain** — Domain entities + abstractions (tenancy interfaces, roles, etc.)
-- **Inventory.Infrastructure** — EF Core `DbContext`, migrations, auditing interceptor
-- **Inventory.Tests.Integration** — Integration tests using `WebApplicationFactory`
-- **Inventory.Tests.Unit** — Unit(-ish) tests for workflow rules
+1) Restore + migrate + run:
 
----
+```bash
+dotnet restore
+dotnet ef database update --project Inventory.Infrastructure --startup-project Inventory.API
+dotnet run --project Inventory.API
+Open Swagger:
 
-## Prerequisites
+https://localhost:<port>/swagger (check console output for the exact port)
 
-- **.NET SDK 9**
-- *(Optional but recommended)* EF CLI tools:
-  ```bash
-  dotnet tool install --global dotnet-ef
+Authenticate (per tenant):
+
+Add header: X-Tenant-Id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
+
+Call POST /api/auth/login and use returned JWT as:
+
+Authorization: Bearer <token>
+
+Solution Structure
+Inventory.API — Web API (controllers, middleware, seed, hosted services, Swagger)
+
+Inventory.Domain — Domain entities + abstractions (tenancy interfaces, roles, etc.)
+
+Inventory.Infrastructure — EF Core DbContext, migrations, auditing interceptor
+
+Inventory.Tests.Integration — Integration tests using WebApplicationFactory
+
+Inventory.Tests.Unit — Unit(-ish) tests for workflow rules
+
+Prerequisites
+.NET SDK 9
+
+(Optional but recommended) EF CLI tools:
+
+dotnet tool install --global dotnet-ef
 Setup & Run (Local)
 Restore
 From solution root:
 
 dotnet restore
-Apply DB Migrations
+Apply DB migrations
 dotnet ef database update --project Inventory.Infrastructure --startup-project Inventory.API
 Run the API
 dotnet run --project Inventory.API
-Swagger UI
+Open Swagger
 Swagger UI is available at:
 
 /swagger (see console output for the exact local URL)
@@ -90,7 +108,7 @@ Connection string: Data Source=inventory.db
 
 A local file inventory.db is created in the working directory of the API process.
 
-Reset DB (Dev)
+Reset DB (dev)
 Stop the API
 
 Delete inventory.db
@@ -98,15 +116,15 @@ Delete inventory.db
 Re-apply migrations:
 
 dotnet ef database update --project Inventory.Infrastructure --startup-project Inventory.API
-Seeding (Demo Tenants + Users + Products + Warehouses)
+Seeding (Demo Data)
 Seeding runs automatically on startup (commonly in Development) using DbSeeder.
 
-Demo Tenants
+Tenants
 Tenant A: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 
 Tenant B: bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
 
-Seeded Users
+Users
 Password for all demo users: Pass123!
 
 Per tenant:
@@ -117,14 +135,14 @@ Manager: manager@demo.com
 
 Clerk: clerk@demo.com
 
-Seeded Warehouses
+Warehouses
 Per tenant:
 
 Main Warehouse
 
 Secondary Warehouse
 
-Seeded Products
+Products
 Per tenant:
 
 SKU-COFFEE-001 — Coffee Beans 1kg — 14.99
@@ -132,16 +150,13 @@ SKU-COFFEE-001 — Coffee Beans 1kg — 14.99
 SKU-TEA-001 — Green Tea 200g — 6.50
 
 Multi-tenancy
-Tenant Header (Required)
+Tenant header (required)
 All API requests (except Swagger/OpenAPI endpoints) require:
 
-Header: X-Tenant-Id: <tenant-guid>
+X-Tenant-Id: <tenant-guid>
+If missing/invalid, the API responds with 400 Bad Request.
 
-If missing/invalid, the API responds with:
-
-400 Bad Request
-
-Tenant Isolation Enforcement
+Tenant isolation enforcement
 Isolation is enforced by:
 
 Tenant resolved by middleware (per-request)
@@ -183,7 +198,7 @@ Response:
 Use the token for subsequent requests:
 
 Authorization: Bearer <token>
-Swagger Usage (Tenant Header + JWT)
+Swagger usage (Tenant header + JWT)
 Swagger is configured to support:
 
 X-Tenant-Id as an API key header
@@ -204,11 +219,13 @@ API Endpoints
 Note: All endpoints require X-Tenant-Id unless explicitly excluded for Swagger/OpenAPI.
 
 Audit
-AuditController
 Base route: /api/audit
 
 Example:
+
 GET /api/audit?take=50&skip=0&entityType=Product&userId=1
+
+Endpoints:
 
 GET /api/audit (Admin only)
 
@@ -223,14 +240,14 @@ entityType (optional, e.g. Product)
 userId (optional)
 
 Auth
-AuthController
 Base route: /api/auth
 
 POST /api/auth/login
 
 Inventory
-InventoryController
 Base route: /api/inventory
+
+Endpoints:
 
 GET /api/inventory/stock
 
@@ -256,7 +273,6 @@ Example Purchase:
 
 { "type": "Purchase", "productId": 1, "warehouseId": 1, "quantity": 10 }
 Products
-ProductsController
 Base route: /api/products
 
 GET /api/products — GetAll
@@ -270,7 +286,6 @@ PUT /api/products/{id:int} — Update
 DELETE /api/products/{id:int} — Delete
 
 Reports (Low-stock)
-ReportsController
 Base route: /api/reports
 
 GET /api/reports/low-stock — GetLatestLowStockReport
@@ -280,7 +295,6 @@ GET /api/reports/low-stock/history?take=10 — GetLowStockHistory
 Roles: Admin/Manager
 
 Users
-UsersController
 Base route: /api/users
 
 GET /api/users — list users (Admin only)
@@ -288,7 +302,6 @@ GET /api/users — list users (Admin only)
 POST /api/users — create user (Admin only)
 
 Warehouses
-WarehousesController
 Base route: /api/warehouses
 
 GET /api/warehouses — GetAll
@@ -308,9 +321,14 @@ Config in appsettings.json:
 
 "LowStockJob": { "IntervalSeconds": 86400, "Threshold": 5 }
 Testing
-Unit Tests
+Run all tests:
+
+dotnet test
+Run unit tests:
+
 dotnet test Inventory.Tests.Unit
-Integration Tests
+Run integration tests:
+
 dotnet test Inventory.Tests.Integration
 Troubleshooting
 EF CLI asks for project
@@ -325,11 +343,11 @@ dotnet ef database update --project Inventory.Infrastructure --startup-project I
 SQLite quirks (DateTimeOffset ordering)
 SQLite may fail translating ORDER BY on DateTimeOffset. Options:
 
-store timestamp with a converter (e.g., as TEXT/INTEGER), or
+store with a converter, or
 
-order by a supported key (e.g., Id) when returning “latest” rows, or
+order by an integer key (e.g., Id) when returning “latest” rows, or
 
-for small datasets: order in memory after materializing results.
+for small datasets: materialize and order in-memory (LINQ-to-Objects).
 
 Reference Seed Values
 Tenants
